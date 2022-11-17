@@ -42,6 +42,7 @@ export default class CrawlTokenHolder {
       }
       return await response.text();
     } catch (err) {
+      console.log(err)
       return null;
     }
   };
