@@ -48,6 +48,12 @@ app.get('/token-holder/:address', async (req, res) => {
     return
   }
   const sorted = await crawler.sortTokenHolders(balance, limit)
+  if(!sorted) {
+    res.status(400).json({
+      message: 'Cannot sort token holder'
+    })
+    return
+  }
   res.json(sorted)
 })
 

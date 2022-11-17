@@ -1,18 +1,26 @@
 // ✅ Do this if using TYPESCRIPT
 import {RequestInfo, RequestInit} from 'node-fetch';
-
-const fetch = (url: RequestInfo, init?: RequestInit) =>
-  import('node-fetch').then(({default: fetch}) => fetch(url, init));
 import {JSDOM} from 'jsdom';
 import {BigNumber, ethers} from "ethers";
 import {formatUnits, parseUnits} from "ethers/lib/utils";
 import {getContract} from "../utils";
-import {ERC20_ABI} from "../constants";
+import {
+  ERC1155_INTERFACE_ID,
+  ERC20_ABI,
+  ERC20_HUMAN_READABLE_ABI,
+  ERC20_INTERFACE,
+  ERC721_INTERFACE_ID,
+  INTERFACE_ERC155_ABI
+} from "../constants";
 import TokenBalanceService from "./TokenBalanceService";
 import TokenBalance from "../entity/TokenBalance";
 import TotalHolder from "../entity/TotalHolder";
 import TotalHolderService from "./TotalHolderService";
 import * as queryString from "querystring";
+import TokenType from "../enums/TokenType";
+
+const fetch = (url: RequestInfo, init?: RequestInit) =>
+  import('node-fetch').then(({default: fetch}) => fetch(url, init));
 
 
 export default class CrawlTokenHolder {
@@ -57,7 +65,7 @@ export default class CrawlTokenHolder {
       const proxyUrl = "https://proxy.scrapeops.io/v1/"
       // Simple HTTP call
       console.log("Proxy url: ", `${proxyUrl}?${params}`)
-      const response = await fetch(`${proxyUrl}?${params}`, {
+      const response = await fetch(`${url}`, {
         headers
       });
       if (!response.ok) {
@@ -82,7 +90,7 @@ export default class CrawlTokenHolder {
 
       const dom: JSDOM = new JSDOM(websiteHtml);
       const doc: Document = dom.window.document;
-      const totalHolderElements = doc.querySelectorAll('span.text-nowrap')[1];
+      const totalHolderElements = doc.querySelectorAll('.col-md-6 span.text-nowrap')[1];
       const totalHoldersStr = totalHolderElements.textContent.replace('Token Holders:', '').replace(/,/g, '').trim();
       const totalHolders = parseInt(totalHoldersStr);
 
@@ -90,13 +98,25 @@ export default class CrawlTokenHolder {
       if (!tokenHolderTable) {
         throw new Error('Cannot find token holder table');
       }
-      //get token decimal
-      const erc20Contract = getContract(
+      //if token is erc721
+      const contract = getContract(
         tokenAddress,
-        ERC20_ABI,
+        INTERFACE_ERC155_ABI,
         this._provider,
       );
-      const decimalsNumber: number = await erc20Contract.decimals();
+      let decimals = 0;
+      const tokenType = await this.detectTokenType(tokenAddress);
+      if (tokenType === TokenType.ERC20) {
+        //get token decimal
+        const erc20Contract = getContract(
+          tokenAddress,
+          ERC20_ABI,
+          this._provider,
+        );
+        const decimalsNumber: number = await erc20Contract.decimals();
+        decimals = decimalsNumber;
+      }
+
       const holders: any[] = [];
       tokenHolderTable.querySelectorAll("tr").forEach((tr, index) => {
         if (index === 0) {
@@ -106,7 +126,7 @@ export default class CrawlTokenHolder {
         const address = td[1].querySelector("a").href.split("?a=").pop()
         const balance = parseFloat(td[2].textContent.replace(/,/g, ''))
 
-        const balanceBigNumber = parseUnits(balance.toString(), decimalsNumber)
+        const balanceBigNumber = parseUnits(balance.toString(), decimals)
         //Save to database
         holders.push({
           token: tokenAddress,
@@ -124,7 +144,7 @@ export default class CrawlTokenHolder {
     }
   }
 
-  public async getTokenHolders(tokenAddress: string, limit=50) {
+  public async getTokenHolders(tokenAddress: string, limit = 50) {
     try {
       const inDbHolders = await this._tokenBalanceService.findAllByToken(tokenAddress);
       const inDbTotalHolders = await this._totalHolderService.findByToken(tokenAddress);
@@ -163,7 +183,57 @@ export default class CrawlTokenHolder {
     }
   }
 
-  public async sortTokenHolders(listHolders: {holders: TokenBalance[], totalHolders: number}, limit=50) {
+  async isErc20(tokenAddress: string): Promise<boolean> {
+    const bytecode = await this._provider.getCode(tokenAddress);
+    let isErc20 = true;
+    for (let i = 0; i < ERC20_HUMAN_READABLE_ABI.length; i++) {
+      const abi = ERC20_HUMAN_READABLE_ABI[i];
+      //skip constructor and event
+      if (abi.includes('constructor') || abi.includes('event')) {
+        continue;
+      }
+      const methodDefinition = abi.replace('function', '').trim();
+      const methodSelector = ERC20_INTERFACE.getSighash(methodDefinition);
+      const methodSelectorHex = methodSelector.substring(2);
+      if (!bytecode.includes(methodSelectorHex)) {
+        isErc20 = false;
+        break;
+      }
+    }
+    return isErc20;
+  }
+
+  /*accept token address return token type*/
+  async detectTokenType(
+    tokenAddress: string,
+  ): Promise<TokenType> {
+    try {
+      const isErc20 = await this.isErc20(tokenAddress);
+      if (isErc20) {
+        return TokenType.ERC20;
+      }
+      //detect erc 721 or 1155
+      const contract = getContract(
+        tokenAddress,
+        INTERFACE_ERC155_ABI,
+        this._provider,
+      );
+      const isERC721 = await contract.supportsInterface(ERC721_INTERFACE_ID);
+      const isERC1155 = await contract.supportsInterface(ERC1155_INTERFACE_ID);
+      if (isERC721) {
+        return TokenType.ERC721;
+      } else if (isERC1155) {
+        return TokenType.ERC1155;
+      } else {
+        return TokenType.UNKNOWN;
+      }
+    } catch (err) {
+      //retry
+      return TokenType.UNKNOWN;
+    }
+  }
+
+  public async sortTokenHolders(listHolders: { holders: TokenBalance[], totalHolders: number }, limit = 50) {
     console.log("limit inservice", limit)
     try {
       const holders = listHolders.holders;
@@ -171,15 +241,23 @@ export default class CrawlTokenHolder {
       //convert balance to number
       const tokenAddress = holders[0].token;
       //get token decimal
-      const erc20Contract = getContract(
-        tokenAddress,
-        ERC20_ABI,
-        this._provider,
-      );
-      const decimalsNumber: number = await erc20Contract.decimals();
+      let decimals = 0;
+      const tokenType = await this.detectTokenType(tokenAddress);
+      if (tokenType === TokenType.ERC20) {
+        //get token decimal
+        const erc20Contract = getContract(
+          tokenAddress,
+          ERC20_ABI,
+          this._provider,
+        );
+        const decimalsNumber: number = await erc20Contract.decimals();
+        decimals = decimalsNumber;
+      }
+
+
       const holdersWithBalanceNumber = holders.map((holder: TokenBalance) => {
         const balanceBigNumber = BigNumber.from(holder.balance);
-        const balanceNumber = parseFloat(formatUnits(balanceBigNumber, decimalsNumber));
+        const balanceNumber = parseFloat(formatUnits(balanceBigNumber, decimals));
         return {
           ...holder,
           balanceNumber
