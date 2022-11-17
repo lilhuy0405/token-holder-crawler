@@ -65,7 +65,7 @@ export default class CrawlTokenHolder {
       const proxyUrl = "https://proxy.scrapeops.io/v1/"
       // Simple HTTP call
       console.log("Proxy url: ", `${proxyUrl}?${params}`)
-      const response = await fetch(`${url}`, {
+      const response = await fetch(`${proxyUrl}?${params}`, {
         headers
       });
       if (!response.ok) {
