@@ -12,6 +12,7 @@ import TokenBalanceService from "./TokenBalanceService";
 import TokenBalance from "../entity/TokenBalance";
 import TotalHolder from "../entity/TotalHolder";
 import TotalHolderService from "./TotalHolderService";
+import * as queryString from "querystring";
 
 
 export default class CrawlTokenHolder {
@@ -48,8 +49,15 @@ export default class CrawlTokenHolder {
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0"
       }
+      const apiKey = "4993f61d-be0f-4231-a39c-136416afba91"
+      const params = queryString.stringify({
+        api_key: apiKey,
+        url: url,
+      });
+      const proxyUrl = "https://proxy.scrapeops.io/v1/"
       // Simple HTTP call
-      const response = await fetch(url, {
+      console.log("Proxy url: ", `${proxyUrl}?${params}`)
+      const response = await fetch(`${proxyUrl}?${params}`, {
         headers
       });
       if (!response.ok) {
