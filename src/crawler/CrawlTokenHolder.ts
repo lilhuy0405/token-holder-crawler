@@ -3,7 +3,7 @@ import {RequestInfo, RequestInit} from 'node-fetch';
 import {JSDOM} from 'jsdom';
 import {BigNumber, ethers} from "ethers";
 import {formatUnits, parseUnits} from "ethers/lib/utils";
-import {getContract} from "../utils";
+import {getContract, getWebsiteContent} from "../utils";
 import {
   ERC1155_INTERFACE_ID,
   ERC20_ABI,
@@ -12,10 +12,10 @@ import {
   ERC721_INTERFACE_ID,
   INTERFACE_ERC155_ABI
 } from "../constants";
-import TokenBalanceService from "./TokenBalanceService";
+import TokenBalanceService from "../service/TokenBalanceService";
 import TokenBalance from "../entity/TokenBalance";
 import TotalHolder from "../entity/TotalHolder";
-import TotalHolderService from "./TotalHolderService";
+import TotalHolderService from "../service/TotalHolderService";
 import * as queryString from "querystring";
 import TokenType from "../enums/TokenType";
 
@@ -36,53 +36,11 @@ export default class CrawlTokenHolder {
 
   }
 
-  //implement retries logic
-  private async getWebsiteContent(url: string, retries = 3): Promise<string> {
-    const userAgentsList = [
-      'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.83 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36'
-    ]
-    try {
-      const headers = {
-        'User-Agent': userAgentsList[Math.floor(Math.random() * userAgentsList.length)],
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0"
-      }
-      const apiKey = "4993f61d-be0f-4231-a39c-136416afba91"
-      const params = queryString.stringify({
-        api_key: apiKey,
-        url: url,
-      });
-      const proxyUrl = "https://proxy.scrapeops.io/v1/"
-      // Simple HTTP call
-      console.log("Proxy url: ", `${proxyUrl}?${params}`)
-      const response = await fetch(`${proxyUrl}?${params}`, {
-        headers
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.text();
-    } catch (err) {
-      console.log(err)
-      return null;
-    }
-  };
-
 
   public async crawlTokenHolder(tokenAddress: string) {
     try {
       const url = `https://etherscan.io/token/tokenholderchart/${tokenAddress}?range=500`
-      const websiteHtml = await this.getWebsiteContent(url);
+      const websiteHtml = await getWebsiteContent(url, true);
       console.log(`Crawled website ${url}`);
       if (!websiteHtml) {
         throw new Error('Empty website content');

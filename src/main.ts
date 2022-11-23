@@ -1,4 +1,4 @@
-import CrawlTokenHolder from "./service/CrawlTokenHolder";
+import CrawlTokenHolder from "./crawler/CrawlTokenHolder";
 import {ETH_MAIN_NET_RPC_URL} from "./constants";
 import {ethers} from "ethers";
 import "reflect-metadata"
@@ -6,6 +6,7 @@ import "reflect-metadata"
 import * as cors from 'cors';
 import {Express, Request} from "express";
 import {AppDataSource} from "./data-source";
+import TopDappService from "./service/TopDappService";
 
 AppDataSource
   .initialize()
@@ -23,6 +24,7 @@ app.use(cors());
 const port = 3000
 const provider = new ethers.providers.JsonRpcProvider(ETH_MAIN_NET_RPC_URL);
 const crawler = new CrawlTokenHolder(provider)
+const topDappService = new TopDappService()
 app.get('/token-holder/:address', async (req, res) => {
   console.log(`Crawling token holder for ${req.params.address}`)
   const {address} = req.params
@@ -48,13 +50,24 @@ app.get('/token-holder/:address', async (req, res) => {
     return
   }
   const sorted = await crawler.sortTokenHolders(balance, limit)
-  if(!sorted) {
+  if (!sorted) {
     res.status(400).json({
       message: 'Cannot sort token holder'
     })
     return
   }
   res.json(sorted)
+})
+
+app.get('/dapps', async (req, res) => {
+  try {
+    const list = await topDappService.getAllSortedByRank();
+    res.json(list)
+  } catch (err) {
+    res.status(500).json({
+      message: 'Cannot get dapps'
+    })
+  }
 })
 
 app.listen(port, () => {
