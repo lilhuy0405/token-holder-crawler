@@ -91,7 +91,7 @@ app.get('/transaction', async (req, res) => {
       nonce: t.nonce ? t.nonce.toString() : "",
     }
   });
-  return res.json({status: "ok", data: txDTO});
+  return res.json(txDTO);
 })
 
 app.get("/native_balance", async (req, res) => {
